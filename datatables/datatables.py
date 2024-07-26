@@ -23,7 +23,7 @@ class DataTables:
     :returns: a DataTables object
     """
 
-    def __init__(self, request, query, columns, allow_regex_searches=False):
+    def __init__(self, request, query, columns, allow_regex_searches=False, limit=None):
         """Initialize object and run the query."""
         self.params = dict(request)
         if "sEcho" in self.params:
@@ -32,6 +32,8 @@ class DataTables:
         self.columns = columns
         self.results = None
         self.allow_regex_searches = allow_regex_searches
+        # limit the count and display for performance
+        self.limit = limit
 
         # total in the table after filtering
         self.cardinality_filtered = 0
@@ -99,7 +101,13 @@ class DataTables:
         query = self.query
 
         # count before filtering
-        self.cardinality = query.add_columns(self.columns[0].sqla_expr).count()
+        query_current = query.add_columns(self.columns[0].sqla_expr)
+
+        # apply limits for performance (counting can take a long time)
+        if self.limit:
+            query_current = query_current.limit(self.limit)
+
+        self.cardinality = query_current.count()
 
         self._set_column_filter_expressions()
         self._set_global_filter_expression()
@@ -109,10 +117,19 @@ class DataTables:
         # apply filters
         query = query.filter(*[e for e in self.filter_expressions if e is not None])
 
-        self.cardinality_filtered = query.add_columns(self.columns[0].sqla_expr).count()
+        # apply limits for performance
+        query_current = query.add_columns(self.columns[0].sqla_expr)
+        if self.limit:
+            query_current = query_current.limit(self.limit)
+
+        self.cardinality_filtered = query_current.count()
 
         # apply sorts
         query = query.order_by(*[e for e in self.sort_expressions if e is not None])
+
+        # apply limits for results
+        if self.limit:
+            query = query.limit(self.limit)
 
         # add paging options
         length = int(self.params.get("length"))
